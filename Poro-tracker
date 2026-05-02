@@ -1,0 +1,87 @@
+import requests
+import pandas as pd
+from datetime import datetime
+import os
+
+# =====================
+# ENV VARIABLES (GitHub Secrets)
+# =====================
+
+PLAYTOMIC_TOKEN = os.getenv("PLAYTOMIC_TOKEN")
+CLUB_ID = "bed5cee1-df3c-4335-a62a-f2b85f9cc22c"
+
+# =====================
+# FETCH DATA
+# =====================
+
+def fetch_data():
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    url = f"https://api.playtomic.io/v1/availability?tenant_id={CLUB_ID}&date={today}"
+
+    headers = {
+        "Authorization": f"Bearer {PLAYTOMIC_TOKEN}"
+    }
+
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
+
+    return r.json()
+
+# =====================
+# CALCULATE HOURS
+# =====================
+
+def duration_hours(start, end):
+    fmt = "%H:%M"
+    s = datetime.strptime(start, fmt)
+    e = datetime.strptime(end, fmt)
+    return (e - s).seconds / 3600
+
+
+def calculate(data):
+    court_totals = {}
+
+    for court in data.get("courts", []):
+        name = court.get("name")
+        total = 0
+
+        for slot in court.get("slots", []):
+            if slot.get("status") != "available":
+                total += duration_hours(slot["start"], slot["end"])
+
+        court_totals[name] = total
+
+    avg = sum(court_totals.values()) / len(court_totals) if court_totals else 0
+
+    return court_totals, avg
+
+# =====================
+# SAVE CSV
+# =====================
+
+def save(avg, totals):
+    timestamp = datetime.now().isoformat()
+
+    # summary
+    with open("summary.csv", "a") as f:
+        f.write(f"{timestamp},{avg}\n")
+
+    # per court
+    for court, hours in totals.items():
+        with open("courts.csv", "a") as f:
+            f.write(f"{timestamp},{court},{hours}\n")
+
+# =====================
+# MAIN
+# =====================
+
+def main():
+    data = fetch_data()
+    totals, avg = calculate(data)
+    save(avg, totals)
+
+    print("AVG HOURS:", avg)
+
+if __name__ == "__main__":
+    main()
